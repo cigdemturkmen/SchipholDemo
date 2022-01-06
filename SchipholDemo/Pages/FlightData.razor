@@ -1,0 +1,266 @@
+﻿@page "/flights"
+
+@inject IHttpClientFactory _clientFactory
+
+@using System;
+@using System.Net.Http.Headers;
+@using System.Text;
+@using System.Text.Json;
+@using System.Text.Json.Serialization;
+@using System.IO;
+@using System.Data;
+@using Newtonsoft.Json;
+@using Newtonsoft.Json.Linq;
+@using System.Net.Http;
+@using System.Threading.Tasks;
+@using System.Net.Http.Json;
+@using Syncfusion.XlsIO;
+@using Microsoft.AspNetCore.Mvc;
+@using Microsoft.AspNetCore.Razor;
+
+
+<div class="row">
+    <div class="col-6"><h3>Flight Data</h3></div>
+    <div class="col-6">
+        <button type="submit" class="btn btn-primary float-right" asp-page-handler="DownloadFile">
+            Download in Excel
+        </button>
+    </div>
+</div>
+
+@if (string.IsNullOrWhiteSpace(errorString) == false)
+{
+    <div class="h2">@errorString</div>
+}
+else if (flight is null)
+{
+    <div class="h4">Loading...</div>
+}
+else
+{
+    <table class="table table-primary">
+        <thead>
+            <tr>
+                <th> </th>
+                <th>Flight Name</th>
+                <th>Flight Number</th>
+                <th>Airline IATA/ICAO</th>
+                <th>Destination</th>
+                <th>Schedule Date</th>
+            </tr>
+        </thead>
+        <tbody>
+
+            @foreach (var flight in flight.Flights)
+            {
+                <tr>
+                    <td>@x</td>
+                    <td>@flight.FlightName</td>
+                    <td>@flight.FlightNumber</td>
+                    <td>@flight.PrefixIATA/@flight.PrefixICAO</td>
+                    <td>@flight.Route.Destinations[0]</td>
+                    <td>@flight.ScheduleDateTime</td>
+                </tr>
+                x += 1;
+            }
+
+        </tbody>
+    </table>
+
+
+    @*<nav class="float-right" aria-label="Page navigation example">
+            <ul class="pagination">
+                <li class="page-item"><a class="page-link" href="#">First</a></li>
+                @foreach (var item in paginationList)
+                {
+                    <li class="page-item"><a class="page-link" href=@uriPagination1>@x</a></li> 
+                    x += 1;
+                }
+                <li class="page-item"><a class="page-link" href="">Last</a></li>
+            </ul>
+        </nav>*@
+
+    <nav class="float-right" aria-label="Page navigation example">
+        <ul class="pagination">
+            <li class="page-item"><a class="page-link" href="#">Previous</a></li>
+            <li class="page-item"><a class="page-link" href="#">1</a></li>
+            <li class="page-item"><a class="page-link" href="#">2</a></li>
+            <li class="page-item"><a class="page-link" href="#">3</a></li>
+            <li class="page-item"><a class="page-link" href="#">Next</a></li>
+        </ul>
+    </nav>
+
+}
+
+
+
+@code {
+
+    FlightScheduleModel flight;
+    List<string> flightListStr = new List<string>();
+    List<string> paginationList = new List<string>();
+    string errorString;
+    int x = 1;
+    string uriPagination1;
+    //private Airport[] airports; // use airports.json - wwwroot
+    //private Airline[] airlines;; // use airlines.json - wwwroot
+    
+
+
+    //public ActionResult OnPostDownloadFile()
+    //{
+    //    return File(...);
+    //}
+
+
+    protected override async Task OnInitializedAsync()
+    {
+
+        //airports = await HttpContentJsonExtensions.GetFromJsonAsync<Airport[]>("airports.json"); // .net5- .net6
+
+        string tomorrow = DateTime.Now.AddDays(1).ToString("yyyy-MM-dd"); // "today" doesnt work.
+        string threeDaysLater = DateTime.Now.AddDays(3).ToString("yyyy-MM-dd"); // First request's "toScheduleDate"
+        string fourDaysLater = DateTime.Now.AddDays(4).ToString("yyyy-MM-dd"); // Second request's "fromScheduleDate"
+        string sixDaysLater = DateTime.Now.AddDays(6).ToString("yyyy-MM-dd"); // Second request's "toScheduleDate"
+        string sevenDaysLater = DateTime.Now.AddDays(7).ToString("yyyy-MM-dd"); // last request's "scheduleDate"
+
+        List<string> uri = new List<string>();
+
+        var uri1 = "https://api.schiphol.nl/public-flights/flights?includedelays=false&page=0&sort=%2BscheduleTime&fromScheduleDate=" + $"{tomorrow}&toScheduleDate={threeDaysLater}";
+
+        var uri2 = "https://api.schiphol.nl/public-flights/flights?includedelays=false&page=0&sort=%2BscheduleTime&fromScheduleDate=" + $"{fourDaysLater}&toScheduleDate={sixDaysLater}";
+
+        var uri3 = ("https://api.schiphol.nl/public-flights/flights?scheduleDate=" + $"{sevenDaysLater}&includedelays=false&page=0&sort=%2BscheduleTime"); // bunu dahil edince -> 304 geliyor
+
+        uriPagination1 = "https://api.schiphol.nl:443/public-flights/flights?includedelays=false&sort=+scheduleTime&fromScheduleDate=" + $"{tomorrow}&toScheduleDate={threeDaysLater}&page={x}";
+
+        var uriPagination2 = "https://api.schiphol.nl:443/public-flights/flights?includedelays=false&sort=+scheduleTime&fromScheduleDate=" + $"{fourDaysLater}&toScheduleDate={sixDaysLater}&page={x}";
+
+        var uriPagination3 = "....";
+
+
+        uri.Add(uri1);
+        uri.Add(uri2);
+        //uri.Add(uri3); // !!!
+        while ( x < 5  /*uriPagination1 != null*/) 
+        {
+            uri.Add(uriPagination1);
+            x += 1;
+        }
+        //while (uriPagination2 != null)
+        //{
+        //    uri.Add(uriPagination2);
+        //    x += 1;
+        //}
+
+
+
+
+        while (x < 10) // pagination butonları için deneme listesi...
+        {
+            paginationList.Add(uriPagination1);
+            x += 1;
+        }
+
+
+        foreach (var item in uri)
+        {
+            HttpClient httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            HttpRequestMessage request = new HttpRequestMessage();
+            request.RequestUri = new Uri(item);
+            request.Method = HttpMethod.Get;
+            request.Headers.Add("app_id", "db0e442e");
+            request.Headers.Add("app_key", "5a1c9f393f6cd1ffcbc693b0d5061bda");
+            request.Headers.Add("ResourceVersion", "v4");
+
+
+            HttpResponseMessage response = await httpClient.SendAsync(request);
+
+            var responseString = await response.Content.ReadAsStringAsync();
+
+            flightListStr.Add(responseString);
+
+
+            var statusCode = response.StatusCode;
+
+            var client = _clientFactory.CreateClient();
+
+            if (response.IsSuccessStatusCode)
+            {
+                flight = await response.Content.ReadFromJsonAsync<FlightScheduleModel>(); //20 flights
+            }
+            else
+            {
+                errorString = $"There was an error. : {response.ReasonPhrase}";
+            }
+
+        }
+
+        string csv = String.Join(",", flightListStr);
+
+
+        #region cvs to excel
+        //using (ExcelEngine excelEngine = new ExcelEngine())
+        //{
+        //    IApplication application = excelEngine.Excel;
+        //    application.DefaultVersion = ExcelVersion.Excel2016;
+
+        //    //Preserve data types as per the value
+        //    application.PreserveCSVDataTypes = true;
+
+        //    //Read the CSV file
+        //    Stream csvStream = File.OpenRead(Path.GetFullPath(csv)); ;
+
+        //    //Reads CSV stream as a workbook
+        //    IWorkbook workbook = application.Workbooks.Open(csvStream);
+        //    IWorksheet sheet = workbook.Worksheets[0];
+
+        //    //Formatting the CSV data as a Table
+        //    IListObject table = sheet.ListObjects.Create("FlightsTable", sheet.UsedRange);
+        //    table.BuiltInTableStyle = TableBuiltInStyles.TableStyleMedium6;
+        //    IRange location = table.Location;
+        //    location.AutofitColumns();
+
+        //    ////Apply the proper latitude & longitude numerformat in the table
+        //    //TryAndUpdateGeoLocation(table, "Latitude");
+        //    //TryAndUpdateGeoLocation(table, "Longitude");
+
+        //    ////Apply currency numberformat in the table column 'Price'
+        //    //IRange columnRange = GetListObjectColumnRange(table, "Price");
+        //    //if (columnRange != null)
+        //    //    columnRange.CellStyle.NumberFormat = "$#,##0.00";
+
+        //    //Apply Date time numberformat in the table column 'Transaction_date'
+        //    //IRange columnRange = GetListObjectColumnRange(table, "scheduleDateTime");
+        //    //if (columnRange != null)
+        //    //    columnRange.CellStyle.NumberFormat = "m/d/yy h:mm AM/PM;@";
+
+        //    //Sort the data based on 'Products'
+        //    //IDataSort sorter = table.AutoFilters.DataSorter;
+        //    //ISortField sortField = sorter.SortFields.Add(0, SortOn.Values, OrderBy.Ascending);
+        //    //sorter.Sort();
+
+        //    ////Save the file in the given path
+        //    //Stream excelStream;
+        //    //excelStream = File.Create(Path.GetFullPath(@"../../../Output.xlsx"));
+        //    //workbook.SaveAs(excelStream);
+        //    //excelStream.Dispose();
+        //}
+        #endregion
+    }
+}
+
+<!-- #region My Notes
+    https://stackoverflow.com/questions/53551361/how-to-add-api-key-in-request-header-using-web-api
+
+    https://stackoverflow.com/questions/10679214/how-do-you-set-the-content-type-header-for-an-httpclient-request
+
+    https://www.mikesdotnetting.com/article/318/working-with-json-in-razor-pages // read later
+
+    https://stackoverflow.com/questions/8735792/how-to-parse-link-header-from-github-api // java
+
+    https://stackoverflow.com/questions/1890093/converting-a-generic-list-to-a-csv-string
+    -->
+<!-- #endregion -->
